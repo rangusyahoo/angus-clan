@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
 
-let memoryStore: any = null;
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
+
+const KEY = "acfl:gamedata";
 
 const INIT_DATA = {
   cast: [
@@ -36,43 +42,22 @@ const INIT_DATA = {
   seasonWinner: null,
 };
 
-async function getKV() {
-  try {
-    const { kv } = await import("@vercel/kv");
-    return kv;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET() {
   try {
-    const kv = await getKV();
-    if (kv) {
-      const data = await kv.get("acfl:gamedata");
-      if (data) return NextResponse.json(data);
-      await kv.set("acfl:gamedata", INIT_DATA);
-      return NextResponse.json(INIT_DATA);
-    }
-    // Fallback to memory if KV not available
-    if (!memoryStore) memoryStore = JSON.parse(JSON.stringify(INIT_DATA));
-    return NextResponse.json(memoryStore);
+    const data = await redis.get(KEY);
+    if (data) return NextResponse.json(data);
+    await redis.set(KEY, JSON.stringify(INIT_DATA));
+    return NextResponse.json(INIT_DATA);
   } catch (e) {
     console.error("GET error:", e);
-    if (!memoryStore) memoryStore = JSON.parse(JSON.stringify(INIT_DATA));
-    return NextResponse.json(memoryStore);
+    return NextResponse.json(INIT_DATA);
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const kv = await getKV();
-    if (kv) {
-      await kv.set("acfl:gamedata", body);
-    } else {
-      memoryStore = body;
-    }
+    await redis.set(KEY, JSON.stringify(body));
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("POST error:", e);
