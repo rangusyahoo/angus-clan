@@ -56,11 +56,14 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+      return NextResponse.json({ error: "Missing env vars", hasUrl: !!process.env.UPSTASH_REDIS_REST_URL, hasToken: !!process.env.UPSTASH_REDIS_REST_TOKEN }, { status: 500 });
+    }
     const body = await req.json();
     await redis.set(KEY, JSON.stringify(body));
     return NextResponse.json({ ok: true });
-  } catch (e) {
+  } catch (e: any) {
     console.error("POST error:", e);
-    return NextResponse.json({ error: "Failed to save" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to save", message: e?.message || "unknown" }, { status: 500 });
   }
 }
