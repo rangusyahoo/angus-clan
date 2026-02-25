@@ -387,8 +387,60 @@ function AdminCast({data,save,flash,tribes}:{data:GameData;save:(d:GameData)=>Pr
 
 function AdminWeeks({data,save,flash,castById}:{data:GameData;save:(d:GameData)=>Promise<void>;flash:(m:string)=>void;castById:Record<string,Cast>}){
   const [selResults,setSelResults]=useState<Record<string,string>>({});
+  const [showTribes,setShowTribes]=useState(false);
+  const [tribeAssignments,setTribeAssignments]=useState<Record<string,string>>({});
+  const [tribeNames,setTribeNames]=useState<string[]>([]);
+  const [newTribeName,setNewTribeName]=useState("");
 
-  const createWeek=async()=>{
+  const openTribeManager=()=>{
+    const active=data.cast.filter(c=>c.status==="active");
+    const tribes=[...new Set(active.map(c=>c.tribe))];
+    setTribeNames(tribes);
+    const assignments:Record<string,string>={};
+    active.forEach(c=>{assignments[c.id]=c.tribe;});
+    setTribeAssignments(assignments);
+    setShowTribes(true);
+  };
+
+  const addTribe=()=>{
+    if(!newTribeName.trim()||tribeNames.includes(newTribeName.trim())) return;
+    setTribeNames([...tribeNames,newTribeName.trim()]);
+    setNewTribeName("");
+  };
+
+  const removeTribe=(t:string)=>{
+    if(tribeNames.length<=1) return;
+    const fallback=tribeNames.find(x=>x!==t)||tribeNames[0];
+    const na={...tribeAssignments};
+    Object.keys(na).forEach(id=>{if(na[id]===t) na[id]=fallback;});
+    setTribeAssignments(na);
+    setTribeNames(tribeNames.filter(x=>x!==t));
+  };
+
+  const renameTribe=(old:string,nw:string)=>{
+    if(!nw.trim()||tribeNames.includes(nw.trim())) return;
+    setTribeNames(tribeNames.map(t=>t===old?nw.trim():t));
+    const na={...tribeAssignments};
+    Object.keys(na).forEach(id=>{if(na[id]===old) na[id]=nw.trim();});
+    setTribeAssignments(na);
+  };
+
+  const saveTribesAndCreateWeek=async()=>{
+    const newCast=data.cast.map(c=>{
+      if(c.status==="active"&&tribeAssignments[c.id]) return {...c,tribe:tribeAssignments[c.id]};
+      return c;
+    });
+    const num=data.weeks.length+1;const now=new Date();const wed=new Date(now);
+    wed.setDate(wed.getDate()+((3-wed.getDay()+7)%7||7));wed.setHours(20,0,0,0);
+    const results:Record<string,null>={};
+    tribeNames.forEach(t=>results[t]=null);
+    const nd={...data,cast:newCast,weeks:[...data.weeks,{num,deadline:wed.toISOString(),results,scored:false}]};
+    await save(nd);
+    setShowTribes(false);
+    flash(`✅ Week ${num} created with updated tribes!`);
+  };
+
+  const createWeekSimple=async()=>{
     const num=data.weeks.length+1;const now=new Date();const wed=new Date(now);
     wed.setDate(wed.getDate()+((3-wed.getDay()+7)%7||7));wed.setHours(20,0,0,0);
     const tribes=[...new Set(data.cast.filter(c=>c.status==="active").map(c=>c.tribe))];
@@ -399,7 +451,54 @@ function AdminWeeks({data,save,flash,castById}:{data:GameData;save:(d:GameData)=
 
   return (
     <div>
-      <button onClick={createWeek} style={{...S.btn("#059669"),width:"100%",padding:12,marginBottom:16}}>+ Create Week {data.weeks.length+1}</button>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        <button onClick={createWeekSimple} style={{...S.btn("#059669"),flex:1,padding:12}}>+ Quick Create Week {data.weeks.length+1}</button>
+        <button onClick={openTribeManager} style={{...S.btn("#b45309"),flex:1,padding:12}}>🔄 Tribe Swap + New Week</button>
+      </div>
+
+      {showTribes&&<div style={{...S.card,borderColor:"#d97706",borderWidth:2}}>
+        <h3 style={{color:"#fbbf24",fontSize:16,margin:"0 0 12px"}}>🔄 Configure Tribes for Week {data.weeks.length+1}</h3>
+
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:13,color:"#d97706",fontFamily:"sans-serif"}}>Add New Tribe:</label>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <input value={newTribeName} onChange={e=>setNewTribeName(e.target.value)} placeholder="New tribe name" style={{...S.inp,flex:1}} onKeyDown={e=>{if(e.key==="Enter") addTribe();}}/>
+            <button onClick={addTribe} style={S.btn()}>Add</button>
+          </div>
+        </div>
+
+        {tribeNames.map(tribe=>{
+          const tc=TC[tribe]||{bg:"#333",bdr:"#888",txt:"#ccc",lt:"#eee",label:tribe};
+          const members=Object.entries(tribeAssignments).filter(([,t])=>t===tribe).map(([id])=>data.cast.find(c=>c.id===id)!).filter(Boolean);
+          return (
+            <div key={tribe} style={{...S.card,borderColor:tc.bdr||"#888",borderWidth:2,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:15,fontWeight:700,color:tc.txt||"#ccc"}}>{tribe}</span>
+                  <span style={{fontSize:12,color:"#8b7040",fontFamily:"sans-serif"}}>({members.length} players)</span>
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>{const n=prompt("Rename tribe:",tribe);if(n) renameTribe(tribe,n);}} style={{...S.btn("#78350f"),padding:"3px 8px",fontSize:11}}>Rename</button>
+                  {tribeNames.length>1&&<button onClick={()=>removeTribe(tribe)} style={{...S.btn("#dc2626"),padding:"3px 8px",fontSize:11}}>Remove</button>}
+                </div>
+              </div>
+              {members.map(m=>(
+                <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid rgba(80,60,20,0.15)"}}>
+                  <span style={{color:"#fde68a",fontSize:13}}>{m.name}</span>
+                  <select value={tribeAssignments[m.id]} onChange={e=>setTribeAssignments(a=>({...a,[m.id]:e.target.value}))} style={{...S.inp,width:130,fontSize:12,padding:"4px 8px",cursor:"pointer"}}>
+                    {tribeNames.map(t=><option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          <button onClick={saveTribesAndCreateWeek} style={{...S.btn("#059669"),flex:1,padding:12}}>✅ Save Tribes & Create Week {data.weeks.length+1}</button>
+          <button onClick={()=>setShowTribes(false)} style={{...S.btn("#78350f"),padding:"8px 16px"}}>Cancel</button>
+        </div>
+      </div>}
       {[...data.weeks].reverse().map(w=>{
         const open=beforeDL(w.deadline);const activeTribes=Object.keys(w.results||{});
         return (
