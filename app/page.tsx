@@ -454,10 +454,10 @@ function AdminPlayers({data,save,flash}:{data:GameData;save:(d:GameData)=>Promis
   return (
     <div>
       <div style={S.card}>
-        <h3 style={{color:"#d97706",fontSize:15,margin:"0 0 10px"}}>Add Player ({data.players.length}/10)</h3>
+        <h3 style={{color:"#d97706",fontSize:15,margin:"0 0 10px"}}>Add Player ({data.players.length}/20)</h3>
         <div style={{display:"flex",gap:8}}>
           <input value={newP} onChange={e=>setNewP(e.target.value)} placeholder="Player name" style={{...S.inp,flex:1}} onKeyDown={async e=>{if(e.key==="Enter"&&newP.trim()&&!data.players.includes(newP.trim())){const nd={...data,players:[...data.players,newP.trim()]};await save(nd);setNewP("");flash("✅ Added");}}}/>
-          <button onClick={async()=>{if(!newP.trim()||data.players.includes(newP.trim())) return;const nd={...data,players:[...data.players,newP.trim()]};await save(nd);setNewP("");flash("✅ Added");}} disabled={data.players.length>=10} style={S.btn(data.players.length<10?"#d97706":"#555")}>Add</button>
+          <button onClick={async()=>{if(!newP.trim()||data.players.includes(newP.trim())) return;const nd={...data,players:[...data.players,newP.trim()]};await save(nd);setNewP("");flash("✅ Added");}} disabled={data.players.length>=20} style={S.btn(data.players.length<20?"#d97706":"#555")}>Add</button>
         </div>
       </div>
       <div style={S.card}>
