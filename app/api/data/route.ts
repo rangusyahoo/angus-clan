@@ -1,7 +1,6 @@
-import { kv } from "@vercel/kv";
 import { NextResponse } from "next/server";
 
-const KEY = "acfl:gamedata";
+let memoryStore: any = null;
 
 const INIT_DATA = {
   cast: [
@@ -37,27 +36,46 @@ const INIT_DATA = {
   seasonWinner: null,
 };
 
+async function getKV() {
+  try {
+    const { kv } = await import("@vercel/kv");
+    return kv;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   try {
-    let data = await kv.get(KEY);
-    if (!data) {
-      await kv.set(KEY, INIT_DATA);
-      data = INIT_DATA;
+    const kv = await getKV();
+    if (kv) {
+      const data = await kv.get("acfl:gamedata");
+      if (data) return NextResponse.json(data);
+      await kv.set("acfl:gamedata", INIT_DATA);
+      return NextResponse.json(INIT_DATA);
     }
-    return NextResponse.json(data);
+    // Fallback to memory if KV not available
+    if (!memoryStore) memoryStore = JSON.parse(JSON.stringify(INIT_DATA));
+    return NextResponse.json(memoryStore);
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "Failed to load" }, { status: 500 });
+    console.error("GET error:", e);
+    if (!memoryStore) memoryStore = JSON.parse(JSON.stringify(INIT_DATA));
+    return NextResponse.json(memoryStore);
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    await kv.set(KEY, body);
+    const kv = await getKV();
+    if (kv) {
+      await kv.set("acfl:gamedata", body);
+    } else {
+      memoryStore = body;
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error(e);
+    console.error("POST error:", e);
     return NextResponse.json({ error: "Failed to save" }, { status: 500 });
   }
 }
