@@ -9,7 +9,7 @@ const TC: Record<string,{bg:string;bdr:string;txt:string;lt:string;label:string}
 const ADMIN_PW = "survivor50admin";
 
 type Cast = {id:string;name:string;tribe:string;status:string;weekOut:number|null};
-type Week = {num:number;deadline:string;results:Record<string,string|null>;scored:boolean};
+type Week = {num:number;deadline:string;results:Record<string,string[]>;scored:boolean};
 type GameData = {
   cast:Cast[];players:string[];weeks:Week[];
   votes:Record<number,Record<string,Record<string,string>>>;
@@ -63,7 +63,7 @@ export default function App(){
       if(!w.results||!w.scored) return;
       data!.players.forEach(p=>{
         const pv=data!.votes[w.num]?.[p]; if(!pv) return;
-        Object.entries(w.results).forEach(([tribe,elimId])=>{if(elimId&&pv[tribe]===elimId) scores[p].weekly+=5;});
+        Object.entries(w.results).forEach(([tribe,elimIds])=>{if(elimIds.length>0&&elimIds.includes(pv[tribe])) scores[p].weekly+=5;});
       });
     });
     if(data!.seasonWinner){
@@ -182,12 +182,12 @@ function VoteTab({data,save,flash,user,castById}:{data:GameData;save:(d:GameData
       {activeTribes.map(tribe=>{
         const members=data.cast.filter(c=>c.tribe===tribe&&c.status==="active");
         const tc=TC[tribe]||{bg:"#333",bdr:"#666",txt:"#ccc",lt:"#eee",label:tribe};
-        const result=currentWeek.results?.[tribe];const correct=result&&picks[tribe]===result;
+        const result=currentWeek.results?.[tribe]||[];const correct=result.length>0&&result.includes(picks[tribe]);
         return (
           <div key={tribe} style={{...S.card,borderColor:tc.bdr,borderWidth:2}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <span style={{fontSize:16,fontWeight:700,color:tc.txt}}>{tc.label||tribe}</span>
-              {currentWeek.scored&&result&&<span style={{fontSize:12,fontFamily:"sans-serif",color:correct?"#6ee7b7":"#fca5a5"}}>{correct?"✅ +5 pts":`❌ ${castById[result]?.name}`}</span>}
+              {currentWeek.scored&&result.length>0&&<span style={{fontSize:12,fontFamily:"sans-serif",color:correct?"#6ee7b7":"#fca5a5"}}>{correct?"✅ +5 pts":`❌ ${result.map(id=>castById[id]?.name).join(", ")}`}</span>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
               {members.map(m=>{
@@ -281,10 +281,10 @@ function History({data,castById}:{data:GameData;castById:Record<string,Cast>}){
             <span style={{fontSize:16,fontWeight:700,color:"#fbbf24"}}>Week {w.num}</span>
             <span style={{fontSize:12,color:w.scored?"#6ee7b7":"#fca5a5",fontFamily:"sans-serif"}}>{w.scored?"Scored":"Pending"}</span>
           </div>
-          {w.results&&Object.entries(w.results).filter(([,v])=>v).length>0&&
+          {w.results&&Object.entries(w.results).some(([,ids])=>ids.length>0)&&
             <div style={{marginBottom:12,padding:8,background:"rgba(120,53,15,0.2)",borderRadius:8}}>
               <span style={{fontSize:12,color:"#d97706",fontFamily:"sans-serif"}}>Eliminated: </span>
-              {Object.entries(w.results).filter(([,v])=>v).map(([tribe,id])=><span key={tribe} style={{fontSize:13,color:TC[tribe]?.txt||"#ccc",marginRight:12}}>{castById[id!]?.name} ({tribe})</span>)}
+              {Object.entries(w.results).filter(([,ids])=>ids.length>0).map(([tribe,ids])=>ids.map(id=><span key={id} style={{fontSize:13,color:TC[tribe]?.txt||"#ccc",marginRight:12}}>{castById[id]?.name} ({tribe})</span>))}
             </div>}
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,fontFamily:"sans-serif"}}>
@@ -297,8 +297,8 @@ function History({data,castById}:{data:GameData;castById:Record<string,Cast>}){
                 const pv=data.votes[w.num]?.[p]||{};let pts=0;
                 return <tr key={p} style={{borderBottom:"1px solid rgba(80,60,20,0.2)"}}>
                   <td style={{padding:"6px 8px",color:"#fde68a"}}>{p}</td>
-                  {Object.entries(w.results||{}).map(([tribe,elimId])=>{
-                    const vote=pv[tribe];const correct=elimId&&vote===elimId;if(correct)pts+=5;
+                  {Object.entries(w.results||{}).map(([tribe,elimIds])=>{
+                    const vote=pv[tribe];const correct=elimIds.length>0&&elimIds.includes(vote);if(correct)pts+=5;
                     return <td key={tribe} style={{padding:"6px 8px",color:!vote?"#666":correct?"#6ee7b7":"#fca5a5"}}>{vote?castById[vote]?.name||"?":"—"} {vote&&(correct?"✅":"❌")}</td>;
                   })}
                   <td style={{padding:"6px 8px",textAlign:"right",color:"#fbbf24",fontWeight:700}}>{w.scored?pts:"—"}</td>
@@ -386,7 +386,7 @@ function AdminCast({data,save,flash,tribes}:{data:GameData;save:(d:GameData)=>Pr
 }
 
 function AdminWeeks({data,save,flash,castById}:{data:GameData;save:(d:GameData)=>Promise<void>;flash:(m:string)=>void;castById:Record<string,Cast>}){
-  const [selResults,setSelResults]=useState<Record<string,string>>({});
+  const [selResults,setSelResults]=useState<Record<string,string[]>>({});
   const [showTribes,setShowTribes]=useState(false);
   const [tribeAssignments,setTribeAssignments]=useState<Record<string,string>>({});
   const [tribeNames,setTribeNames]=useState<string[]>([]);
@@ -432,8 +432,8 @@ function AdminWeeks({data,save,flash,castById}:{data:GameData;save:(d:GameData)=
     });
     const num=data.weeks.length+1;const now=new Date();const wed=new Date(now);
     wed.setDate(wed.getDate()+((3-wed.getDay()+7)%7||7));wed.setHours(20,0,0,0);
-    const results:Record<string,null>={};
-    tribeNames.forEach(t=>results[t]=null);
+    const results:Record<string,string[]>={};
+    tribeNames.forEach(t=>results[t]=[]);
     const nd={...data,cast:newCast,weeks:[...data.weeks,{num,deadline:wed.toISOString(),results,scored:false}]};
     await save(nd);
     setShowTribes(false);
@@ -444,7 +444,7 @@ function AdminWeeks({data,save,flash,castById}:{data:GameData;save:(d:GameData)=
     const num=data.weeks.length+1;const now=new Date();const wed=new Date(now);
     wed.setDate(wed.getDate()+((3-wed.getDay()+7)%7||7));wed.setHours(20,0,0,0);
     const tribes=[...new Set(data.cast.filter(c=>c.status==="active").map(c=>c.tribe))];
-    const results:Record<string,null>={};tribes.forEach(t=>results[t]=null);
+    const results:Record<string,string[]>={};tribes.forEach(t=>results[t]=[]);
     const nd={...data,weeks:[...data.weeks,{num,deadline:wed.toISOString(),results,scored:false}]};
     await save(nd);flash(`✅ Week ${num} created!`);
   };
@@ -515,30 +515,39 @@ function AdminWeeks({data,save,flash,castById}:{data:GameData;save:(d:GameData)=
               <input type="datetime-local" value={w.deadline?.slice(0,16)||""} onChange={async e=>{const nd={...data,weeks:data.weeks.map(x=>x.num===w.num?{...x,deadline:e.target.value}:x)};await save(nd);flash("Updated");}} style={{...S.inp,marginTop:4}}/>
             </div>
             {!w.scored&&<div>
-              <p style={{color:"#d97706",fontSize:13,margin:"0 0 8px",fontFamily:"sans-serif"}}>Enter elimination results:</p>
+              <p style={{color:"#d97706",fontSize:13,margin:"0 0 8px",fontFamily:"sans-serif"}}>Enter elimination results (select all eliminated):</p>
               {activeTribes.map(tribe=>{
                 const members=data.cast.filter(c=>c.tribe===tribe&&(c.status==="active"||(c.weekOut===w.num)));
                 const tc=TC[tribe]||{txt:"#ccc",label:tribe};const key=`${w.num}-${tribe}`;
-                return <div key={tribe} style={{marginBottom:8}}>
-                  <label style={{fontSize:13,color:tc.txt}}>{tc.label||tribe}:</label>
-                  <select value={selResults[key]||w.results?.[tribe]||""} onChange={e=>setSelResults(r=>({...r,[key]:e.target.value}))} style={{...S.inp,marginTop:4,cursor:"pointer"}}>
-                    <option value="">No elimination</option>
-                    {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
+                const sel=selResults[key]||w.results?.[tribe]||[];
+                return <div key={tribe} style={{marginBottom:10}}>
+                  <label style={{fontSize:13,color:tc.txt,fontWeight:700}}>{tc.label||tribe}:</label>
+                  <div style={{marginTop:4,display:"flex",flexWrap:"wrap",gap:6}}>
+                    {members.map(m=>{
+                      const checked=sel.includes(m.id);
+                      return <label key={m.id} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:13,color:checked?"#fde68a":"#b08040",fontFamily:"sans-serif",background:checked?"rgba(120,53,15,0.4)":"rgba(30,20,10,0.4)",padding:"4px 10px",borderRadius:6,border:`1px solid ${checked?tc.bdr||"#b45309":"rgba(100,80,40,0.3)"}`}}>
+                        <input type="checkbox" checked={checked} onChange={()=>{
+                          setSelResults(r=>{const cur=r[key]||w.results?.[tribe]||[];return {...r,[key]:checked?cur.filter((x: string)=>x!==m.id):[...cur,m.id]};});
+                        }} style={{accentColor:"#d97706"}}/>
+                        {m.name}
+                      </label>;
+                    })}
+                  </div>
                 </div>;
               })}
               <button onClick={async()=>{
                 const week=data.weeks.find(x=>x.num===w.num);if(!week) return;
                 const nr={...week.results};
-                Object.keys(nr).forEach(tribe=>{const k=`${w.num}-${tribe}`;if(selResults[k]!==undefined) nr[tribe]=selResults[k]||null;});
-                const nc=data.cast.map(c=>Object.values(nr).includes(c.id)&&c.status==="active"?{...c,status:"eliminated",weekOut:w.num}:c);
+                Object.keys(nr).forEach(tribe=>{const k=`${w.num}-${tribe}`;if(selResults[k]!==undefined) nr[tribe]=selResults[k];});
+                const allElimIds=Object.values(nr).flat();
+                const nc=data.cast.map(c=>allElimIds.includes(c.id)&&c.status==="active"?{...c,status:"eliminated",weekOut:w.num}:c);
                 const nd={...data,cast:nc,weeks:data.weeks.map(x=>x.num===w.num?{...x,results:nr,scored:true}:x)};
                 await save(nd);flash(`✅ Week ${w.num} scored!`);
               }} style={{...S.btn("#059669"),marginTop:8}}>Score Week {w.num}</button>
             </div>}
             {w.scored&&<div style={{padding:8,background:"rgba(6,95,70,0.2)",borderRadius:8}}>
               <span style={{fontSize:13,fontFamily:"sans-serif",color:"#6ee7b7"}}>Results: </span>
-              {Object.entries(w.results||{}).map(([tribe,id])=><span key={tribe} style={{fontSize:13,color:TC[tribe]?.txt||"#ccc",marginRight:10}}>{tribe}: {id?castById[id]?.name:"None"}</span>)}
+              {Object.entries(w.results||{}).map(([tribe,ids])=><span key={tribe} style={{fontSize:13,color:TC[tribe]?.txt||"#ccc",marginRight:10}}>{tribe}: {ids.length>0?ids.map(id=>castById[id]?.name).join(", "):"None"}</span>)}
             </div>}
             <div style={{marginTop:10}}><span style={{fontSize:12,color:"#8b7040",fontFamily:"sans-serif"}}>Votes: {Object.keys(data.votes[w.num]||{}).length}/{data.players.length}</span></div>
           </div>
