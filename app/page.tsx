@@ -17,7 +17,14 @@ type GameData = {
   seasonWinner:string|null;
 };
 
-async function loadData():Promise<GameData> { const r=await fetch("/api/data"); return r.json(); }
+async function loadData():Promise<GameData> {
+  const r=await fetch("/api/data"); const d=await r.json();
+  if(d.weeks) d.weeks=d.weeks.map((w:any)=>{
+    if(w.results){const nr:Record<string,string[]>={};Object.entries(w.results).forEach(([t,v])=>{nr[t]=Array.isArray(v)?v:v?[v as string]:[];});w.results=nr;}
+    return w;
+  });
+  return d;
+}
 async function saveData(d:GameData) { await fetch("/api/data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}); }
 
 function getNowET(){const s=new Date().toLocaleString("en-US",{timeZone:"America/New_York"});return new Date(s);}
